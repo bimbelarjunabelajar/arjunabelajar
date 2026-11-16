@@ -2097,52 +2097,137 @@ function loadQList() {
 
 function generateQHTML(q) {
     let inp = '';
-    // Gunakan fungsi decodeHTML agar tag html seperti <p> dsb diterjemahkan dengan benar
-    let cleanedQuestion = decodeHTML(q.Pertanyaan);
+    // Normalisasi nama kolom dari Turso SQLite (antisipasi huruf besar/kecil)
+    const qId = q.QID || q.qid || '';
+    const qTipe = String(q.Tipe || q.tipe || 'PGS');
+    const qNomor = q.Nomor || q.nomor || '';
+    const qSkor = q.Skor || q.skor || 0;
+    const rawPertanyaan = q.Pertanyaan || q.pertanyaan || '';
+    const rawOptions = q.Options || q.options || '[]';
+    const rawKey = q.Key || q.key || '[]';
 
-    if(q.Tipe==='PGKK') {
-        const opts = JSON.parse(q.Options||"[]");
-        inp = `<table style="width:100%; border-collapse: collapse; margin-top:15px; background:white;" border="1"><thead><tr style="background:#f8f9fa;"><th style="padding:10px; text-align:left;">PERNYATAAN</th><th width="15%" style="padding:10px; text-align:center;">BENAR</th><th width="15%" style="padding:10px; text-align:center;">SALAH</th></tr></thead><tbody>`;
-        opts.forEach((o,x)=> { inp+=`<tr><td style="padding:10px;">${o}</td><td style="padding:10px; text-align:center; vertical-align:middle;"><input type="radio" name="ans-${q.QID}-${x}" value="B" style="transform:scale(1.2);"></td><td style="padding:10px; text-align:center; vertical-align:middle;"><input type="radio" name="ans-${q.QID}-${x}" value="S" style="transform:scale(1.2);"></td></tr>`; });
+    let cleanedQuestion = decodeHTML(rawPertanyaan);
+
+    let opts = [];
+    try { opts = typeof rawOptions === 'string' ? JSON.parse(rawOptions) : (rawOptions || []); } catch(e) { opts = []; }
+    let keys = [];
+    try { keys = typeof rawKey === 'string' ? JSON.parse(rawKey) : (rawKey || []); } catch(e) { keys = []; }
+
+    if (qTipe === 'PGKK') {
+        inp = `<table style="width:100%; border-collapse: collapse; margin-top:15px; background:white;" border="1">
+                <thead>
+                    <tr style="background:#f8f9fa;">
+                        <th style="padding:10px; text-align:left;">PERNYATAAN</th>
+                        <th width="15%" style="padding:10px; text-align:center;">BENAR</th>
+                        <th width="15%" style="padding:10px; text-align:center;">SALAH</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+        opts.forEach((o, x) => {
+            let k = keys[x] || '';
+            inp += `<tr>
+                        <td style="padding:10px;">${o}</td>
+                        <td style="padding:10px; text-align:center; vertical-align:middle;">
+                            <input type="radio" name="prev-ans-${qId}-${x}" value="B" ${k === 'B' ? 'checked' : ''} style="transform:scale(1.2);">
+                        </td>
+                        <td style="padding:10px; text-align:center; vertical-align:middle;">
+                            <input type="radio" name="prev-ans-${qId}-${x}" value="S" ${k === 'S' ? 'checked' : ''} style="transform:scale(1.2);">
+                        </td>
+                    </tr>`;
+        });
         inp += `</tbody></table>`;
-    } else if(q.Tipe==='Menjodohkan') {
-        const lItems = JSON.parse(q.Options||"[]"); let rItems = [];
-        try { rItems = [...JSON.parse(q.Key||"[]")].sort(() => Math.random() - 0.5); } catch(e){}
-        inp = `<div style="display:flex; justify-content:space-between; gap:20px; margin-top:15px;"><div style="flex:1; display:flex; flex-direction:column; gap:10px;">${lItems.map((t)=>`<div style="border:2px solid #e2e8f0; padding:10px; border-radius:8px; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,0.1);">${t}</div>`).join('')}</div><div style="flex:1; display:flex; flex-direction:column; gap:10px;">${rItems.map((t)=>`<div style="border:2px solid #e2e8f0; padding:10px; border-radius:8px; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,0.1);">${t}</div>`).join('')}</div></div>`;
-    } else if(q.Tipe.includes('PG')) {
-        const opts = JSON.parse(q.Options||"[]");
-        opts.forEach(o => { inp += `<label style="display:flex; align-items:center; border:1px solid #e2e8f0; padding:15px; margin-bottom:10px; border-radius:8px; background:#fff; cursor:pointer; box-shadow:0 1px 2px rgba(0,0,0,0.05);"><input type="${q.Tipe==='PGK'?'checkbox':'radio'}" name="ans-${q.QID}" style="margin-right:15px; transform:scale(1.5);"><div style="flex-grow:1; margin:0;">${o}</div></label>`; });
+    } else if (qTipe === 'Menjodohkan') {
+        const lItems = opts;
+        const rItems = [...keys];
+        inp = `<div style="display:flex; justify-content:space-between; gap:20px; margin-top:15px;">
+                <div style="flex:1; display:flex; flex-direction:column; gap:10px;">
+                    <div style="font-weight:bold; font-size:13px; color:#64748b;">Pernyataan Kiri:</div>
+                    ${lItems.map(t => `<div style="border:2px solid #e2e8f0; padding:10px; border-radius:8px; background:#fff;">${t}</div>`).join('')}
+                </div>
+                <div style="flex:1; display:flex; flex-direction:column; gap:10px;">
+                    <div style="font-weight:bold; font-size:13px; color:#15803d;">Pasangan Kunci Kanan:</div>
+                    ${rItems.map(t => `<div style="border:2px solid #bbf7d0; padding:10px; border-radius:8px; background:#f0fdf4;">${t}</div>`).join('')}
+                </div>
+               </div>`;
+    } else if (qTipe.includes('PG')) {
+        const cleanKeys = keys.map(k => String(k).trim());
+        opts.forEach(o => {
+            const isKey = cleanKeys.includes(String(o).trim());
+            inp += `<label style="display:flex; align-items:center; border:${isKey ? '2px solid #16a34a' : '1px solid #e2e8f0'}; padding:12px 15px; margin-bottom:10px; border-radius:8px; background:${isKey ? '#f0fdf4' : '#fff'}; cursor:pointer;">
+                        <input type="${qTipe === 'PGK' ? 'checkbox' : 'radio'}" name="prev-ans-${qId}" ${isKey ? 'checked' : ''} style="margin-right:15px; transform:scale(1.4);">
+                        <div style="flex-grow:1; margin:0;">${o}</div>
+                        ${isKey ? `<span style="background:#16a34a; color:#fff; font-size:11px; padding:3px 10px; border-radius:12px; font-weight:bold; margin-left:10px;">Kunci</span>` : ''}
+                    </label>`;
+        });
     } else {
-        inp = `<textarea style="width:100%; padding:15px; border:1px solid #e2e8f0; border-radius:8px; font-family:inherit; resize:vertical;" rows="5" placeholder="Ketik jawaban di sini..."></textarea>`;
+        inp = `<textarea style="width:100%; padding:15px; border:1px solid #e2e8f0; border-radius:8px; font-family:inherit; resize:vertical;" rows="3" placeholder="Area jawaban siswa..."></textarea>
+               ${keys.length > 0 ? `<div style="margin-top:8px; font-size:13px; color:#15803d; background:#f0fdf4; padding:8px 12px; border-radius:6px; border:1px solid #bbf7d0;"><b>Kunci Jawaban Uraian:</b> ${keys.join(', ')}</div>` : ''}`;
     }
-    return `<div style="font-family: 'Poppins', Arial, sans-serif; padding:15px 0; margin-bottom:20px;"><div style="background:#0f5132; color:white; display:inline-block; padding:5px 15px; border-radius:15px; font-size:13px; font-weight:bold; margin-bottom:15px;">Soal No. ${q.Nomor||''}</div><div style="margin-bottom:20px; font-size:16px; line-height:1.6; word-wrap: break-word;">${cleanedQuestion}</div>${inp}</div>`;
+
+    return `<div style="font-family: 'Poppins', Arial, sans-serif; padding:15px; margin-bottom:15px; background:#fff; border-radius:12px; border:1px solid #e2e8f0; text-align:left;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                    <span style="background:#0f5132; color:white; padding:5px 15px; border-radius:15px; font-size:13px; font-weight:bold;">Soal No. ${qNomor} (${qTipe})</span>
+                    <span style="font-size:13px; color:#64748b; font-weight:bold;">Skor: ${qSkor}</span>
+                </div>
+                <div style="margin-bottom:15px; font-size:16px; line-height:1.6; word-wrap: break-word; color:#1e293b;">${cleanedQuestion}</div>
+                ${inp}
+            </div>`;
 }
 
 function previewAllQ() {
-    let htmlContent = ''; currentQuestionsData.forEach(q => { htmlContent += `<div class="q-box" style="border-bottom:2px dashed #ccc; padding-bottom:15px; margin-bottom:15px;">${generateQHTML(q)}</div>`; });
-    if(!htmlContent) return Swal.fire('Kosong', 'Belum ada soal untuk dipreview.', 'info');
-    
-    if($('#modalPreviewQ').length === 0) {
-        $('body').append(`<div class="modal fade" id="modalPreviewQ" tabindex="-1"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content"><div class="modal-header bg-info text-white"><h5 class="modal-title fw-bold"><i class="fas fa-desktop me-2"></i> Preview Seluruh Soal</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div><div class="modal-body bg-light" id="preview-q-body" style="padding:30px;"></div></div></div></div>`);
+    // Jika currentQuestionsData kosong, ambil cadangan langsung dari atribut DOM .q-block
+    let listSoal = (currentQuestionsData && currentQuestionsData.length > 0) ? currentQuestionsData : [];
+    if (listSoal.length === 0) {
+        $('.q-block').each(function() {
+            try {
+                let obj = JSON.parse(decodeURIComponent($(this).attr('data-q-obj')));
+                listSoal.push(obj);
+            } catch(e) {}
+        });
     }
-    $('#preview-q-body').html(htmlContent); 
-    
-    // PERBAIKAN: Gunakan Native Bootstrap instance untuk memanggil modal
-    const previewModal = new bootstrap.Modal(document.getElementById('modalPreviewQ'));
-    previewModal.show();
 
-    // MEMAKSA Z-INDEX MENGGUNAKAN JQUERY AGAR SELALU TAMPIL PALING DEPAN
-    setTimeout(() => {
-        $('#modalPreviewQ').css('z-index', '1080'); // Layar modal soal di 1080
-        $('.modal-backdrop').last().css('z-index', '1075'); // Latar belakang hitam untuk modal soal di 1075
-    }, 150);
+    if (listSoal.length === 0) {
+        return Swal.fire('Kosong', 'Belum ada soal untuk dipreview.', 'info');
+    }
 
-    applyMathJax();
+    let htmlContent = '';
+    listSoal.forEach(q => {
+        htmlContent += generateQHTML(q);
+    });
+
+    // Tampilkan menggunakan SweetAlert2 (z-index 20000) agar pasti muncul di atas modal-fullscreen Editor Soal
+    Swal.fire({
+        title: `<div class="d-flex align-items-center justify-content-between"><span class="fs-5 fw-bold text-primary"><i class="fas fa-desktop me-2"></i>Preview Seluruh Soal (${listSoal.length} Nomor)</span></div>`,
+        html: `<div style="max-height: 72vh; overflow-y: auto; padding: 10px; background: #f8fafc; border-radius: 10px;">${htmlContent}</div>`,
+        width: '900px',
+        showCloseButton: true,
+        confirmButtonText: '<i class="fas fa-times me-1"></i> Tutup Preview',
+        confirmButtonColor: '#0f5132',
+        didOpen: () => {
+            applyMathJax();
+        }
+    });
 }
 
 function downloadAllQ() {
-    let htmlContent = ''; currentQuestionsData.forEach(q => { htmlContent += `<div class="q-box" style="border-bottom:2px dashed #ccc; padding-bottom:20px; margin-bottom:20px;">${generateQHTML(q)}</div>`; });
-    if(!htmlContent) return Swal.fire('Kosong', 'Belum ada soal untuk didownload.', 'info');
+    let listSoal = (currentQuestionsData && currentQuestionsData.length > 0) ? currentQuestionsData : [];
+    if (listSoal.length === 0) {
+        $('.q-block').each(function() {
+            try {
+                let obj = JSON.parse(decodeURIComponent($(this).attr('data-q-obj')));
+                listSoal.push(obj);
+            } catch(e) {}
+        });
+    }
+
+    if (listSoal.length === 0) {
+        return Swal.fire('Kosong', 'Belum ada soal untuk didownload.', 'info');
+    }
+
+    let htmlContent = '';
+    listSoal.forEach(q => {
+        htmlContent += `<div class="q-box" style="margin-bottom:20px;">${generateQHTML(q)}</div>`;
+    });
     downloadHTMLToPDF('Arsip_Soal_CBT', htmlContent);
 }
 
