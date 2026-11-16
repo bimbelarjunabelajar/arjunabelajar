@@ -736,12 +736,20 @@ function fetchLiveMonitor(isSilent = false) {
 
 // Fungsi untuk memuat kerangka Data Peserta beserta Filter Pencarian
     
+window.currentUsersFiltered = [];
+window.usersCurrentPage = 1;
+
 function renderUsers(users) {
-    window.allUsersData = users; 
+    window.allUsersData = users || [];
+    window.currentUsersFiltered = window.allUsersData;
+    window.usersCurrentPage = 1;
+
     const role = String(user.Role).trim().toLowerCase();
     const isAdmin = role === 'admin';
     const canEdit = role === 'admin' || role === 'guru'; 
-    let uniqueSekolah = [...new Set(users.map(u => u.Sekolah || ''))].filter(Boolean);
+    let uniqueSekolah = [...new Set(window.allUsersData.map(u => u.Sekolah || u.sekolah || ''))].filter(Boolean).sort();
+    let uniqueKelas = [...new Set(window.allUsersData.map(u => u.Kelas || u.kelas || ''))].filter(k => k && k !== '-').sort();
+    let uniqueNama = [...new Set(window.allUsersData.map(u => u.Nama || u.nama || ''))].filter(Boolean).sort();
 
     let h = `<div class="d-flex justify-content-between mb-3 flex-wrap gap-2 align-items-center">
         <div>
@@ -760,41 +768,114 @@ function renderUsers(users) {
         </div>
     </div>
     
-    <div class="row g-2 mb-3 p-3 bg-white rounded-4 shadow-sm border">
-        <div class="col-md-6"><label class="small fw-bold text-muted ms-1">Cari Siswa</label><input type="text" id="filter-user-nama" class="form-control bg-light border-0 rounded-pill px-3" placeholder="Ketik nama / username..." onkeyup="applyFilterUsers()"></div>
-        <div class="col-md-6"><label class="small fw-bold text-muted ms-1">Filter Sekolah</label><select id="filter-user-sekolah" class="form-select bg-light border-0 rounded-pill px-3" onchange="applyFilterUsers()"><option value="">Semua Sekolah</option>${uniqueSekolah.map(s => `<option value="${s}">${s}</option>`).join('')}</select></div>
+    <div class="row g-2 mb-3 p-3 bg-white rounded-4 shadow-sm border align-items-end">
+        <div class="col-md-4">
+            <label class="small fw-bold text-muted ms-1">Cari Siswa (Nama / Username)</label>
+            <input type="text" id="filter-user-nama" list="list-rekom-user" class="form-control bg-light border-0 rounded-pill px-3" placeholder="Ketik nama / username..." oninput="applyFilterUsers()">
+            <datalist id="list-rekom-user">
+                ${uniqueNama.map(n => `<option value="${n}">`).join('')}
+            </datalist>
+        </div>
+        <div class="col-md-3">
+            <label class="small fw-bold text-muted ms-1">Filter Kelas</label>
+            <select id="filter-user-kelas" class="form-select bg-light border-0 rounded-pill px-3" onchange="applyFilterUsers()">
+                <option value="">Semua Kelas</option>
+                ${uniqueKelas.map(k => `<option value="${k}">${k}</option>`).join('')}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="small fw-bold text-muted ms-1">Filter Sekolah</label>
+            <select id="filter-user-sekolah" class="form-select bg-light border-0 rounded-pill px-3" onchange="applyFilterUsers()">
+                <option value="">Semua Sekolah</option>
+                ${uniqueSekolah.map(s => `<option value="${s}">${s}</option>`).join('')}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="small fw-bold text-muted ms-1">Tampilkan Baris</label>
+            <select id="filter-user-limit" class="form-select bg-light border-0 rounded-pill px-3 fw-bold text-primary" onchange=" window.usersCurrentPage = 1; renderUserRows(window.currentUsersFiltered);">
+                <option value="10">10 Baris</option>
+                <option value="20">20 Baris</option>
+                <option value="50">50 Baris</option>
+                <option value="100">100 Baris</option>
+                <option value="ALL">Semua</option>
+            </select>
+        </div>
     </div>
 
-    <div class="card border-0 shadow-sm rounded-4 overflow-hidden"><div class="card-body p-0"><div class="table-responsive"><table class="table table-hover align-middle mb-0" id="tbl-users"><thead class="table-light"><tr>${isAdmin ? `<th width="50"><input type="checkbox" class="form-check-input" id="check-all-users" onchange="toggleAllUsers(this)"></th>` : ''}<th>Foto & Nama</th><th>Tgl Lahir</th><th>Username</th><th>Role</th><th>Kelas</th><th>Sekolah</th>${canEdit ? '<th>Aksi</th>' : ''}</tr></thead><tbody id="users-tbody"></tbody></table></div></div></div>`;
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" id="tbl-users">
+                    <thead class="table-light">
+                        <tr>
+                            ${isAdmin ? `<th width="50"><input type="checkbox" class="form-check-input" id="check-all-users" onchange="toggleAllUsers(this)"></th>` : ''}
+                            <th width="50">No</th>
+                            <th>Foto & Nama</th>
+                            <th>Tgl Lahir</th>
+                            <th>Username</th>
+                            <th>Role</th>
+                            <th>Kelas</th>
+                            <th>Sekolah</th>
+                            ${canEdit ? '<th>Aksi</th>' : ''}
+                        </tr>
+                    </thead>
+                    <tbody id="users-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card-footer bg-white border-top d-flex justify-content-between align-items-center p-3 flex-wrap gap-2" id="users-pagination-info"></div>
+    </div>`;
     
     $('#content-area').html(h);
-    renderUserRows(users);
+    renderUserRows(window.currentUsersFiltered);
 }
 
-// Fungsi untuk merender isi (baris) tabel pengguna berdasarkan filter
-// Menampilkan/menyembunyikan form identitas tergantung role yang dipilih
-function toggleUserFields() {
-    const role = $('#mu-role').val();
-    if(role === 'siswa') {
-        $('#siswa-fields-container').show();
-        $('.modal-dialog').addClass('modal-xl').removeClass('modal-md'); // Perlebar modal jika siswa
-    } else {
-        $('#siswa-fields-container').hide();
-        $('.modal-dialog').removeClass('modal-xl').addClass('modal-md'); // Perkecil modal jika guru/admin
-    }
+function applyFilterUsers() {
+    let kataKunci = ($('#filter-user-nama').val() || "").toLowerCase().trim();
+    let sekolah = $('#filter-user-sekolah').val() || "";
+    let kelas = $('#filter-user-kelas').val() || "";
+    
+    window.currentUsersFiltered = (window.allUsersData || []).filter(u => {
+        let uNama = String(u.Nama || u.nama || "").toLowerCase();
+        let uUser = String(u.Username || u.username || "").toLowerCase();
+        let uSekolah = String(u.Sekolah || u.sekolah || "");
+        let uKelas = String(u.Kelas || u.kelas || "");
+
+        let matchNama = kataKunci === "" || uNama.includes(kataKunci) || uUser.includes(kataKunci);
+        let matchSekolah = sekolah === "" || uSekolah === sekolah;
+        let matchKelas = kelas === "" || uKelas === kelas;
+        return matchNama && matchSekolah && matchKelas;
+    });
+    
+    window.usersCurrentPage = 1;
+    renderUserRows(window.currentUsersFiltered);
 }
 
-// Render baris data di tabel Data Peserta
+function changeUsersPage(page) {
+    window.usersCurrentPage = page;
+    renderUserRows(window.currentUsersFiltered);
+}
+
 function renderUserRows(data) {
     const role = String(user.Role).trim().toLowerCase();
     const isAdmin = role === 'admin';
     const canEdit = role === 'admin' || role === 'guru'; 
     let h = '';
     
-    if(!data || data.length === 0) {
-        h = `<tr><td colspan="${isAdmin ? 8 : (canEdit ? 7 : 6)}" class="text-center text-muted py-4">Data peserta tidak ditemukan.</td></tr>`;
+    const limitVal = $('#filter-user-limit').val() || '10';
+    const totalData = data ? data.length : 0;
+    const limit = limitVal === 'ALL' ? (totalData || 1) : parseInt(limitVal, 10);
+    const totalPages = Math.max(1, Math.ceil(totalData / limit));
+    if (window.usersCurrentPage > totalPages) window.usersCurrentPage = totalPages;
+    if (window.usersCurrentPage < 1) window.usersCurrentPage = 1;
+
+    const startIdx = (window.usersCurrentPage - 1) * limit;
+    const pagedData = limitVal === 'ALL' ? (data || []) : (data || []).slice(startIdx, startIdx + limit);
+
+    if(!pagedData || pagedData.length === 0) {
+        h = `<tr><td colspan="${isAdmin ? 9 : (canEdit ? 8 : 7)}" class="text-center text-muted py-4">Data peserta tidak ditemukan.</td></tr>`;
     } else {
-        data.forEach(u => {
+        pagedData.forEach((u, idx) => {
             let uId = u.ID || u.id;
             let uNama = u.Nama || u.nama || '-';
             let uUsername = u.Username || u.username || '-';
@@ -803,12 +884,11 @@ function renderUserRows(data) {
             let uSekolah = u.Sekolah || u.sekolah || '-';
             let uTgl = u.TglLahir || u.tgllahir || '-';
             let uFoto = u.Foto || u.foto || 'https://via.placeholder.com/40';
-
-            // Kirim SELURUH data u ke fungsi edit agar terbaca semua
             const safeData = encodeURIComponent(JSON.stringify(u));
 
             h += `<tr>
                 ${isAdmin ? `<td><input type="checkbox" class="form-check-input check-user" value="${uId}" onchange="toggleBulkDeleteUsersBtn()"></td>` : ''}
+                <td class="text-muted fw-bold">${startIdx + idx + 1}</td>
                 <td><div class="d-flex align-items-center"><img src="${uFoto}" class="rounded-circle me-3 shadow-sm" width="40" height="40" style="object-fit:cover;"><span class="fw-bold text-dark">${uNama}</span></div></td>
                 <td>${uTgl}</td>
                 <td>${uUsername}</td>
@@ -825,7 +905,35 @@ function renderUserRows(data) {
     $('#users-tbody').html(h);
     $('#check-all-users').prop('checked', false);
     if(isAdmin) toggleBulkDeleteUsersBtn();
+
+    // Render informasi paginasi
+    let startNum = totalData === 0 ? 0 : startIdx + 1;
+    let endNum = Math.min(startIdx + limit, totalData);
+    let pagHtml = `<div class="small text-muted fw-medium">Menampilkan <b>${startNum}-${endNum}</b> dari <b>${totalData}</b> peserta</div>`;
+    if (limitVal !== 'ALL' && totalPages > 1) {
+        pagHtml += `<div class="btn-group btn-group-sm">
+            <button class="btn btn-outline-primary" ${window.usersCurrentPage === 1 ? 'disabled' : ''} onclick="changeUsersPage(${window.usersCurrentPage - 1})"><i class="fas fa-chevron-left"></i></button>
+            <button class="btn btn-primary fw-bold px-3" disabled>Hal ${window.usersCurrentPage} / ${totalPages}</button>
+            <button class="btn btn-outline-primary" ${window.usersCurrentPage === totalPages ? 'disabled' : ''} onclick="changeUsersPage(${window.usersCurrentPage + 1})"><i class="fas fa-chevron-right"></i></button>
+        </div>`;
+    }
+    $('#users-pagination-info').html(pagHtml);
 }
+
+// Fungsi untuk merender isi (baris) tabel pengguna berdasarkan filter
+// Menampilkan/menyembunyikan form identitas tergantung role yang dipilih
+function toggleUserFields() {
+    const role = $('#mu-role').val();
+    if(role === 'siswa') {
+        $('#siswa-fields-container').show();
+        $('.modal-dialog').addClass('modal-xl').removeClass('modal-md'); // Perlebar modal jika siswa
+    } else {
+        $('#siswa-fields-container').hide();
+        $('.modal-dialog').removeClass('modal-xl').addClass('modal-md'); // Perkecil modal jika guru/admin
+    }
+}
+
+// Render baris data di tabel Data Peserta
 
 // Buka modal untuk edit user (mengisi semua field)
 function editUser(str) {
@@ -937,19 +1045,7 @@ function saveUser() {
         showLoad(false); btn.prop('disabled', false).html(originalText); Swal.fire('Koneksi Terputus', err.message || 'Gagal menghubungi server.', 'error');
     }).adminManageUser('save', d);
 }
-// Logika Filter (Nama/Username dan Sekolah)
-function applyFilterUsers() {
-    let kataKunci = $('#filter-user-nama').val().toLowerCase();
-    let sekolah = $('#filter-user-sekolah').val();
-    
-    let filtered = window.allUsersData.filter(u => {
-        let matchNama = (u.Nama || "").toLowerCase().includes(kataKunci) || (u.Username || "").toLowerCase().includes(kataKunci);
-        let matchSekolah = sekolah === "" || u.Sekolah === sekolah;
-        return matchNama && matchSekolah;
-    });
-    
-    renderUserRows(filtered);
-}
+
 
 // Logika Checkbox "Check All" Peserta
 function toggleAllUsers(el) {
@@ -1830,12 +1926,27 @@ function laporTrobel(rid) {
     });
 }
 
+function filterAdminMateri() {
+    const q = ($('#filter-nama-materi').val() || '').toLowerCase().trim();
+    const k = ($('#filter-kelas-materi').val() || '').toLowerCase().trim();
+    $('.materi-card').each(function() {
+        const judul = String($(this).attr('data-judul') || '');
+        const kelas = String($(this).attr('data-kelas') || '');
+        const matchJudul = q === '' || judul.includes(q);
+        const matchKelas = k === '' || kelas.includes(k);
+        $(this).toggle(matchJudul && matchKelas);
+    });
+}
+
 function filterAdminUjian() {
-    const m = $('#filter-mapel-ujian').val(); const k = $('#filter-kelas-ujian').val();
+    const q = ($('#filter-nama-ujian').val() || '').toLowerCase().trim();
+    const k = ($('#filter-kelas-ujian').val() || '').toLowerCase().trim();
     $('.ujian-card').each(function() {
-        const matchMapel = m === '' || $(this).data('mapel') === m;
-        const matchKelas = k === '' || $(this).data('kelas') === k;
-        $(this).toggle(matchMapel && matchKelas);
+        const judul = String($(this).attr('data-judul') || '');
+        const kelas = String($(this).attr('data-kelas') || '');
+        const matchJudul = q === '' || judul.includes(q);
+        const matchKelas = k === '' || kelas.includes(k);
+        $(this).toggle(matchJudul && matchKelas);
     });
 }
 
@@ -1904,23 +2015,62 @@ function manageQ(id) {
 let lastQuestionNum = 0;
 
 function handleUploadQuestionsExcel(e) {
-    const file = e.target.files[0]; if(!file) return;
+    const file = e.target.files[0]; 
+    if(!file) return;
     const reader = new FileReader();
     reader.onload = function(evt) {
-        const json = XLSX.utils.sheet_to_json(XLSX.read(evt.target.result, {type: 'binary'}).Sheets[XLSX.read(evt.target.result, {type: 'binary'}).SheetNames[0]]);
-        let formattedData = json.map(row => {
-            let opsRaw = row['Opsi (Pisahkan dgn |)'] ? String(row['Opsi (Pisahkan dgn |)']).split('|') : [];
-            let keyRaw = row['Kunci (Pisahkan dgn |)'] ? String(row['Kunci (Pisahkan dgn |)']).split('|') : [];
-            return { num: row['Nomor'] || 1, type: row['Tipe'] || 'PGS', score: row['Skor'] || 10, text: row['Pertanyaan'] || '', options: opsRaw, key: keyRaw };
-        }).filter(q => q.text !== '');
-        if(formattedData.length === 0) return Swal.fire('Error', 'Format data tidak valid.', 'error');
-        showLoad(true);
-        google.script.run.withSuccessHandler(res => {
-            showLoad(false);
-            if(res.status === 'success') { Swal.fire('Sukses', res.msg, 'success'); loadQList(); } else Swal.fire('Gagal', res.msg, 'error');
-        }).adminBatchSaveQuestions(activeExamId, formattedData, user.ID);
+        try {
+            const wb = XLSX.read(evt.target.result, {type: 'binary'});
+            const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+            
+            let formattedData = json.map((row, idx) => {
+                let rawOps = row['Opsi (Pisahkan dgn |)'] !== undefined ? row['Opsi (Pisahkan dgn |)'] : (row['Opsi'] || '');
+                let rawKey = row['Kunci (Pisahkan dgn |)'] !== undefined ? row['Kunci (Pisahkan dgn |)'] : (row['Kunci'] || '');
+                let tipe = String(row['Tipe'] || 'PGS').trim();
+
+                let opsArr = rawOps !== '' ? String(rawOps).split('|').map(s => s.trim()).filter(Boolean) : [];
+                let keyArr = [];
+                if (rawKey !== '') {
+                    if (tipe === 'Uraian' && !String(rawKey).includes('|')) {
+                        keyArr = String(rawKey).split(',').map(s => s.trim()).filter(Boolean);
+                    } else {
+                        keyArr = String(rawKey).split('|').map(s => s.trim()).filter(Boolean);
+                    }
+                }
+
+                return { 
+                    num: Number(row['Nomor']) || (idx + 1), 
+                    type: tipe, 
+                    score: Number(row['Skor']) || 10, 
+                    text: String(row['Pertanyaan'] || '').trim(), 
+                    options: opsArr, 
+                    key: keyArr 
+                };
+            }).filter(q => q.text !== '');
+
+            if(formattedData.length === 0) {
+                return Swal.fire('Error', 'Format data Excel tidak valid atau kolom Pertanyaan kosong.', 'error');
+            }
+
+            showLoad(true);
+            google.script.run.withSuccessHandler(res => {
+                showLoad(false);
+                if(res && res.status === 'success') { 
+                    Swal.fire('Sukses', res.msg, 'success'); 
+                    loadQList(); 
+                } else {
+                    Swal.fire('Gagal', (res && res.msg) || 'Gagal menyimpan soal.', 'error');
+                }
+            }).withFailureHandler(err => {
+                showLoad(false);
+                Swal.fire('Error Server', err.message || 'Gagal menghubungi server.', 'error');
+            }).adminBatchSaveQuestions(activeExamId, formattedData, user.ID);
+        } catch (err) {
+            Swal.fire('Error', 'Gagal membaca file Excel: ' + err.message, 'error');
+        }
     };
     reader.readAsBinaryString(file);
+    e.target.value = ''; // Reset input file agar file yang sama bisa diupload ulang jika perlu
 }
 function loadQList() {
     $('#q-list-container').html('<div class="text-center p-5"><div class="spinner"></div></div>');
@@ -2661,7 +2811,7 @@ function loadPage(page) {
     }
     if(page === 'admin-absen') {
         showLoad(true);
-        google.script.run.withSuccessHandler(r => { showLoad(false); if(r.status === 'success') renderAbsenAdmin(r.data); }).withFailureHandler(handleErr).getAbsenRekap(user.Role, user.Sekolah, user.Kelas);
+        google.script.run.withSuccessHandler(r => { showLoad(false); if(r.status === 'success') renderAbsenAdmin(r.data, r.classes); }).withFailureHandler(handleErr).getAbsenRekap(user.Role, user.Sekolah, user.Kelas);
         return;
     }
     if(page === 'siswa-absen') {
@@ -2690,18 +2840,66 @@ window.dataSiswaCetak = [];
 window.dataSiswaCetak = [];
 
 function renderCetakIdentitas(users) {
-    window.dataSiswaCetak = users.filter(u => String(u.Role || u.role).toLowerCase() === 'siswa');
+    window.dataSiswaCetak = (users || []).filter(u => String(u.Role || u.role).toLowerCase() === 'siswa');
+    let uniqueKelas = [...new Set(window.dataSiswaCetak.map(u => u.Kelas || u.kelas || ''))].filter(k => k && k !== '-').sort();
+
     let html = `<div class="d-flex justify-content-between mb-4"><h5 class="fw-bold text-primary"><i class="fas fa-id-badge me-2"></i> Cetak Identitas Siswa (Format BKN)</h5></div>
         <div class="row g-3 bg-white p-4 rounded-4 shadow-sm border mb-4">
-            <div class="col-md-12"><label class="small fw-bold">Pilih Siswa</label><select id="cetak-id-siswa" class="form-select">
-                <option value="">-- Pilih Siswa --</option>
-                ${window.dataSiswaCetak.map(u => `<option value="${u.ID || u.id}">${u.Nama || u.nama} - Kls ${u.Kelas || u.kelas}</option>`).join('')}
-            </select></div>
-            <div class="col-md-6"><label class="small fw-bold">Nama Kepala Sekolah</label><input type="text" id="cetak-kepsek" class="form-control" placeholder="Nama Lengkap Kepala Sekolah..."></div>
-            <div class="col-md-6"><label class="small fw-bold">NIP Kepala Sekolah</label><input type="text" id="cetak-nip-kepsek" class="form-control" placeholder="Kosongkan jika tidak ada..."></div>
+            <div class="col-md-4">
+                <label class="small fw-bold text-muted mb-1">1. Filter Kelas</label>
+                <select id="cetak-filter-kelas" class="form-select bg-light border-0 rounded-pill px-3" onchange="filterRekomendasiSiswaCetak()">
+                    <option value="">Semua Kelas</option>
+                    ${uniqueKelas.map(k => `<option value="${k}">${k}</option>`).join('')}
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="small fw-bold text-muted mb-1">2. Cari / Filter Rekomendasi Siswa</label>
+                <input type="text" id="cetak-cari-siswa" list="list-cetak-siswa" class="form-control bg-light border-0 rounded-pill px-3" placeholder="Ketik nama siswa..." oninput="syncCariKeSelectCetak()">
+                <datalist id="list-cetak-siswa"></datalist>
+            </div>
+            <div class="col-md-4">
+                <label class="small fw-bold text-muted mb-1">3. Siswa Terpilih</label>
+                <select id="cetak-id-siswa" class="form-select border-primary fw-bold rounded-pill px-3">
+                    <option value="">-- Pilih Siswa --</option>
+                </select>
+            </div>
+            <div class="col-md-6 mt-3"><label class="small fw-bold">Nama Kepala Sekolah</label><input type="text" id="cetak-kepsek" class="form-control" placeholder="Nama Lengkap Kepala Sekolah..."></div>
+            <div class="col-md-6 mt-3"><label class="small fw-bold">NIP Kepala Sekolah</label><input type="text" id="cetak-nip-kepsek" class="form-control" placeholder="Kosongkan jika tidak ada..."></div>
             <div class="col-12 mt-4 text-center"><button class="btn btn-primary btn-lg px-5 shadow rounded-pill" onclick="prosesCetakIdentitas()"><i class="fas fa-print me-2"></i>Cetak Identitas PDF</button></div>
         </div>`;
     $('#content-area').html(html);
+    filterRekomendasiSiswaCetak();
+}
+
+function filterRekomendasiSiswaCetak() {
+    let kls = $('#cetak-filter-kelas').val() || '';
+    let filtered = window.dataSiswaCetak.filter(u => kls === '' || String(u.Kelas || u.kelas || '') === kls);
+
+    let datalistHtml = filtered.map(u => `<option value="${u.Nama || u.nama} - Kls ${u.Kelas || u.kelas}">`).join('');
+    $('#list-cetak-siswa').html(datalistHtml);
+
+    let selectHtml = `<option value="">-- Pilih Siswa (${filtered.length} tersedia) --</option>` +
+        filtered.map(u => `<option value="${u.ID || u.id}">${u.Nama || u.nama} - Kls ${u.Kelas || u.kelas}</option>`).join('');
+    $('#cetak-id-siswa').html(selectHtml);
+    $('#cetak-cari-siswa').val('');
+}
+
+function syncCariKeSelectCetak() {
+    let val = ($('#cetak-cari-siswa').val() || '').toLowerCase().trim();
+    let kls = $('#cetak-filter-kelas').val() || '';
+    let filtered = window.dataSiswaCetak.filter(u => {
+        let matchKls = kls === '' || String(u.Kelas || u.kelas || '') === kls;
+        let label = `${u.Nama || u.nama} - Kls ${u.Kelas || u.kelas}`.toLowerCase();
+        return matchKls && label.includes(val);
+    });
+
+    let selectHtml = `<option value="">-- Pilih Siswa (${filtered.length} cocok) --</option>` +
+        filtered.map(u => `<option value="${u.ID || u.id}">${u.Nama || u.nama} - Kls ${u.Kelas || u.kelas}</option>`).join('');
+    $('#cetak-id-siswa').html(selectHtml);
+
+    if (filtered.length === 1) {
+        $('#cetak-id-siswa').val(filtered[0].ID || filtered[0].id);
+    }
 }
 
 function prosesCetakIdentitas() {
@@ -2927,20 +3125,49 @@ function renderContent(page) {
         h += '</div>';
     }
     
-    // (SISA BLOK ADMIN MATERI & UJIAN SEPERTI ASLI)
-    else if (page === 'admin-materi') {
-        h += `<div class="d-flex justify-content-between mb-4 flex-wrap gap-2"><h5 class="fw-bold text-primary"><i class="fas fa-book me-2"></i>Modul & Materi Belajar</h5><button class="btn btn-primary rounded-pill px-4 shadow-sm fw-bold" onclick="$('#modalMateri').modal('show'); $('#frm-materi')[0].reset(); $('#mat-id').val('');"><i class="fas fa-plus me-2"></i> Tambah Materi</button></div><div class="row g-4">`;
-        if(!gData.materials || gData.materials.length === 0) h += `<div class="col-12"><div class="alert alert-light border text-center py-5 rounded-4 shadow-sm text-muted">Belum ada materi diunggah.</div></div>`;
+   else if (page === 'admin-materi') {
+        let mats = gData.materials || [];
+        let uniqueKelasMat = [...new Set(mats.map(m => m.TargetKelas || m.targetkelas || ''))].filter(Boolean).sort();
+        let uniqueJudulMat = [...new Set(mats.map(m => m.Judul || m.judul || ''))].filter(Boolean).sort();
+
+        h += `<div class="d-flex justify-content-between mb-3 flex-wrap gap-2 align-items-center">
+                <h5 class="fw-bold text-primary mb-0"><i class="fas fa-book me-2"></i>Modul & Materi Belajar</h5>
+                <button class="btn btn-primary rounded-pill px-4 shadow-sm fw-bold" onclick="$('#modalMateri').modal('show'); $('#frm-materi')[0].reset(); $('#mat-id').val('');"><i class="fas fa-plus me-2"></i> Tambah Materi</button>
+              </div>
+              <div class="row g-2 mb-4 p-3 bg-white rounded-4 shadow-sm border">
+                <div class="col-md-6">
+                    <label class="small fw-bold text-muted ms-1">Cari / Rekomendasi Nama Modul</label>
+                    <input type="text" id="filter-nama-materi" list="list-rekom-materi" class="form-control bg-light border-0 rounded-pill px-3" placeholder="Ketik judul modul atau mapel..." oninput="filterAdminMateri()">
+                    <datalist id="list-rekom-materi">
+                        ${uniqueJudulMat.map(j => `<option value="${j}">`).join('')}
+                    </datalist>
+                </div>
+                <div class="col-md-6">
+                    <label class="small fw-bold text-muted ms-1">Filter Rekomendasi Kelas</label>
+                    <input type="text" id="filter-kelas-materi" list="list-rekom-kelas-materi" class="form-control bg-light border-0 rounded-pill px-3" placeholder="Pilih atau ketik kelas (misal: ALL, 6 Al Mudzil)..." oninput="filterAdminMateri()">
+                    <datalist id="list-rekom-kelas-materi">
+                        ${uniqueKelasMat.map(k => `<option value="${k}">`).join('')}
+                    </datalist>
+                </div>
+              </div>
+              <div class="row g-4" id="admin-materi-list">`;
+        if(mats.length === 0) h += `<div class="col-12"><div class="alert alert-light border text-center py-5 rounded-4 shadow-sm text-muted">Belum ada materi diunggah.</div></div>`;
         else {
-            gData.materials.forEach(m => {
-                let mId = m.MatID || m.matid; let mJudul = m.Judul || m.judul; let mMapel = m.Mapel || m.mapel; let mKelas = m.TargetKelas || m.targetkelas; let mTipe = m.Tipe || m.tipe;
+            mats.forEach(m => {
+                let mId = m.MatID || m.matid; let mJudul = m.Judul || m.judul || ''; let mMapel = m.Mapel || m.mapel || ''; let mKelas = m.TargetKelas || m.targetkelas || ''; let mTipe = m.Tipe || m.tipe || '';
                 let icon = mTipe === 'pdf' ? 'fa-file-pdf text-danger' : (mTipe === 'youtube' ? 'fa-youtube text-danger' : 'fa-file-alt text-primary');
-                h += `<div class="col-md-6 col-lg-4"><div class="card h-100 shadow-sm border-0 rounded-4 p-4"><span class="badge bg-light text-dark border mb-3 w-auto align-self-start px-3 py-2 rounded-pill">${mMapel} | Kls ${mKelas}</span><h5 class="fw-bold mb-2">${mJudul}</h5><p class="small text-muted mb-4"><i class="fas ${icon} me-1"></i> Tipe: ${String(mTipe).toUpperCase()}</p>
-                <div class="mt-auto d-flex gap-2">
-                    <button class="btn btn-success flex-fill rounded-pill fw-bold shadow-sm" onclick="lihatMateri('${encodeURIComponent(JSON.stringify(m))}')"><i class="fas fa-eye"></i> Buka</button>
-                    <button class="btn btn-warning flex-fill rounded-pill fw-bold shadow-sm text-dark" onclick="editMateri('${encodeURIComponent(JSON.stringify(m))}')"><i class="fas fa-edit"></i> Edit</button>
-                    <button class="btn btn-outline-danger rounded-circle px-2 shadow-sm" onclick="hapusMateri('${mId}')"><i class="fas fa-trash"></i></button>
-                </div></div></div>`;
+                h += `<div class="col-md-6 col-lg-4 materi-card" data-judul="${mJudul.toLowerCase()} ${mMapel.toLowerCase()}" data-kelas="${mKelas.toLowerCase()}">
+                    <div class="card h-100 shadow-sm border-0 rounded-4 p-4">
+                        <span class="badge bg-light text-dark border mb-3 w-auto align-self-start px-3 py-2 rounded-pill">${mMapel} | Kls ${mKelas}</span>
+                        <h5 class="fw-bold mb-2">${mJudul}</h5>
+                        <p class="small text-muted mb-4"><i class="fas ${icon} me-1"></i> Tipe: ${String(mTipe).toUpperCase()}</p>
+                        <div class="mt-auto d-flex gap-2">
+                            <button class="btn btn-success flex-fill rounded-pill fw-bold shadow-sm" onclick="lihatMateri('${encodeURIComponent(JSON.stringify(m))}')"><i class="fas fa-eye"></i> Buka</button>
+                            <button class="btn btn-warning flex-fill rounded-pill fw-bold shadow-sm text-dark" onclick="editMateri('${encodeURIComponent(JSON.stringify(m))}')"><i class="fas fa-edit"></i> Edit</button>
+                            <button class="btn btn-outline-danger rounded-circle px-2 shadow-sm" onclick="hapusMateri('${mId}')"><i class="fas fa-trash"></i></button>
+                        </div>
+                    </div>
+                </div>`;
             });
         }
         h += `</div>`;
@@ -2948,12 +3175,36 @@ function renderContent(page) {
     
     else if (page === 'admin-ujian') {
         isSurveyMode = false;
-        h += `<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3"><h5 class="fw-bold text-primary mb-0"><i class="fas fa-folder-open me-2"></i>Daftar Bank Soal</h5><button class="btn btn-primary shadow-sm px-4 py-2 rounded-pill fw-bold" onclick="openExamModal()"><i class="fas fa-plus me-2"></i>Buat Evaluasi / Ujian Baru</button></div><div class="row g-4" id="admin-ujian-list">`;
-        if(!gData.exams || gData.exams.length === 0) h += `<div class="col-12"><div class="alert alert-light border text-center py-5 rounded-4 shadow-sm text-muted">Belum ada ujian yang Anda buat.</div></div>`;
-        (gData.exams||[]).forEach(e => {
-            let safeE = { ExamID: e.ExamID || e.examid, Judul: e.Judul || e.judul, Mapel: e.Mapel || e.mapel, TargetKelas: e.TargetKelas || e.targetkelas, Durasi: e.Durasi || e.durasi, Token: e.Token || e.token, StartDate: e.StartDate || e.startdate, EndDate: e.EndDate || e.enddate, Limit: e.LimitTries || e.limittries, ShowStats: e.ShowStats || e.showstats, RandomQ: e.RandomQ || e.randomq, AllowDownloadQ: e.AllowDownloadQ || e.allowdownloadq, AllowDownloadR: e.AllowDownloadR || e.allowdownloadr };
+        let exs = gData.exams || [];
+        let uniqueKelasEx = [...new Set(exs.map(e => e.TargetKelas || e.targetkelas || ''))].filter(Boolean).sort();
+        let uniqueJudulEx = [...new Set(exs.map(e => e.Judul || e.judul || ''))].filter(Boolean).sort();
+
+        h += `<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-3">
+                <h5 class="fw-bold text-primary mb-0"><i class="fas fa-folder-open me-2"></i>Daftar Bank Soal</h5>
+                <button class="btn btn-primary shadow-sm px-4 py-2 rounded-pill fw-bold" onclick="openExamModal()"><i class="fas fa-plus me-2"></i>Buat Evaluasi / Ujian Baru</button>
+              </div>
+              <div class="row g-2 mb-4 p-3 bg-white rounded-4 shadow-sm border">
+                <div class="col-md-6">
+                    <label class="small fw-bold text-muted ms-1">Cari / Rekomendasi Nama Ujian</label>
+                    <input type="text" id="filter-nama-ujian" list="list-rekom-ujian" class="form-control bg-light border-0 rounded-pill px-3" placeholder="Ketik nama ujian atau mapel..." oninput="filterAdminUjian()">
+                    <datalist id="list-rekom-ujian">
+                        ${uniqueJudulEx.map(j => `<option value="${j}">`).join('')}
+                    </datalist>
+                </div>
+                <div class="col-md-6">
+                    <label class="small fw-bold text-muted ms-1">Filter Rekomendasi Kelas</label>
+                    <input type="text" id="filter-kelas-ujian" list="list-rekom-kelas-ujian" class="form-control bg-light border-0 rounded-pill px-3" placeholder="Pilih atau ketik kelas (misal: All, 6 Al Mudzil)..." oninput="filterAdminUjian()">
+                    <datalist id="list-rekom-kelas-ujian">
+                        ${uniqueKelasEx.map(k => `<option value="${k}">`).join('')}
+                    </datalist>
+                </div>
+              </div>
+              <div class="row g-4" id="admin-ujian-list">`;
+        if(exs.length === 0) h += `<div class="col-12"><div class="alert alert-light border text-center py-5 rounded-4 shadow-sm text-muted">Belum ada ujian yang Anda buat.</div></div>`;
+        exs.forEach(e => {
+            let safeE = { ExamID: e.ExamID || e.examid, Judul: e.Judul || e.judul || '', Mapel: e.Mapel || e.mapel || '', TargetKelas: e.TargetKelas || e.targetkelas || '', Durasi: e.Durasi || e.durasi, Token: e.Token || e.token, StartDate: e.StartDate || e.startdate, EndDate: e.EndDate || e.enddate, Limit: e.LimitTries || e.limittries, ShowStats: e.ShowStats || e.showstats, RandomQ: e.RandomQ || e.randomq, AllowDownloadQ: e.AllowDownloadQ || e.allowdownloadq, AllowDownloadR: e.AllowDownloadR || e.allowdownloadr };
             let actionButtons = `<button class="btn btn-sm btn-outline-dark flex-fill rounded-pill fw-bold" onclick="openExamModal('${encodeURIComponent(JSON.stringify(safeE)).replace(/'/g, "%27")}')"><i class="fas fa-cog"></i> Edit</button> <button class="btn btn-sm btn-outline-primary flex-fill rounded-pill fw-bold" onclick="manageQ('${safeE.ExamID}')"><i class="fas fa-list"></i> Buat Soal</button> <button class="btn btn-sm btn-danger rounded-circle px-2" onclick="delExam('${safeE.ExamID}')"><i class="fas fa-trash"></i></button>`;
-            h += `<div class="col-md-6 col-xl-4 ujian-card"><div class="card h-100 shadow-sm border-0 rounded-4 overflow-hidden"><div class="card-body p-4"><span class="badge bg-primary px-3 py-2 rounded-pill shadow-sm mb-3">${safeE.Mapel}</span><h5 class="fw-bold text-dark mb-1">${safeE.Judul}</h5><p class="small text-muted mb-4"><i class="fas fa-clock me-1"></i> ${safeE.Durasi} Menit | Kls: ${safeE.TargetKelas}</p><div class="d-flex gap-2 mt-auto">${actionButtons}</div></div></div></div>`;
+            h += `<div class="col-md-6 col-xl-4 ujian-card" data-judul="${safeE.Judul.toLowerCase()} ${safeE.Mapel.toLowerCase()}" data-kelas="${String(safeE.TargetKelas).toLowerCase()}"><div class="card h-100 shadow-sm border-0 rounded-4 overflow-hidden"><div class="card-body p-4"><span class="badge bg-primary px-3 py-2 rounded-pill shadow-sm mb-3">${safeE.Mapel}</span><h5 class="fw-bold text-dark mb-1">${safeE.Judul}</h5><p class="small text-muted mb-4"><i class="fas fa-clock me-1"></i> ${safeE.Durasi} Menit | Kls: ${safeE.TargetKelas}</p><div class="d-flex gap-2 mt-auto">${actionButtons}</div></div></div></div>`;
         });
         h += '</div>';
     }
@@ -3153,9 +3404,15 @@ function openMapelFolder(mapelName) {
 // ===============================================
 // FUNGSI BARU: MENU ABSENSI GURU (BISA INPUT & REKAP)
 // ===============================================
-function renderAbsenAdmin(data) {
-    window.allAbsenData = data || []; window.currentFilteredAbsen = window.allAbsenData;
-    let uniqueKelas = [...new Set(window.allAbsenData.map(a => a.Kelas || a.kelas || ''))].filter(Boolean).sort();
+function renderAbsenAdmin(data, extraClasses = []) {
+    window.allAbsenData = data || []; 
+    window.currentFilteredAbsen = window.allAbsenData;
+    
+    let absenClasses = window.allAbsenData.map(a => a.Kelas || a.kelas || '');
+    let userCachedClasses = (window.allUsersData || []).map(u => u.Kelas || u.kelas || '');
+    let uniqueKelas = [...new Set([...absenClasses, ...(extraClasses || []), ...userCachedClasses])].filter(k => k && k !== '-').sort();
+    window.absenAvailableClasses = uniqueKelas;
+
     let optKelas = `<option value="">Semua Kelas</option>` + uniqueKelas.map(k => `<option value="${k}">${k}</option>`).join('');
 
     let h = `
@@ -3167,27 +3424,88 @@ function renderAbsenAdmin(data) {
         <div class="col-md-3"><label class="small fw-bold text-muted ms-1">Bulan Absen</label><input type="month" id="filter-absen-bulan" class="form-control bg-light border-0 rounded-pill px-3" onchange="applyFilterAbsen()"></div>
         <div class="col-md-3"><label class="small fw-bold text-muted ms-1">Pilih Semester</label><select id="filter-absen-semester" class="form-select bg-light border-0 rounded-pill px-3" onchange="applyFilterAbsen()"><option value="Ganjil">Semester Ganjil</option><option value="Genap">Semester Genap</option></select></div>
         <div class="col-md-3"><label class="small fw-bold text-muted ms-1">Filter Kelas</label><select id="filter-absen-kelas" class="form-select bg-light border-0 rounded-pill px-3" onchange="applyFilterAbsen()">${optKelas}</select></div>
-        <div class="col-md-3"><label class="small fw-bold text-muted ms-1">Cari Nama</label><input type="text" id="filter-absen-nama" class="form-control bg-light border-0 rounded-pill px-3" placeholder="Ketik nama (utk Detail)" onkeyup="applyFilterAbsen()"></div>
+        <div class="col-md-3"><label class="small fw-bold text-muted ms-1">Cari Nama</label><input type="text" id="filter-absen-nama" class="form-control bg-light border-0 rounded-pill px-3" placeholder="Ketik nama (utk Detail)" oninput="applyFilterAbsen()"></div>
     </div>
 
     <div class="card border-0 shadow-sm rounded-4 overflow-hidden"><div class="table-responsive"><table class="table table-hover align-middle mb-0 text-center"><thead class="table-light"><tr><th>Tanggal</th><th class="text-start">Nama</th><th>Kelas</th><th>Sekolah</th><th>Status</th><th>Aksi</th></tr></thead><tbody id="absen-tbody"></tbody></table></div></div>`;
-    $('#content-area').html(h); renderAbsenRows(window.allAbsenData);
+    $('#content-area').html(h); 
+    renderAbsenRows(window.allAbsenData);
 }
 
 function applyFilterAbsen() {
-    let nama = $('#filter-absen-nama').val().toLowerCase(); 
-    let bln = $('#filter-absen-bulan').val(); // format: YYYY-MM
-    let kelas = $('#filter-absen-kelas').val(); 
+    let nama = ($('#filter-absen-nama').val() || "").toLowerCase().trim(); 
+    let bln = $('#filter-absen-bulan').val() || "";
+    let kelas = ($('#filter-absen-kelas').val() || "").toLowerCase().trim(); 
     
-    window.currentFilteredAbsen = window.allAbsenData.filter(a => {
-        let tglAbsen = a.Tanggal || a.tanggal || "";
-        let matchNama = (a.Nama || a.nama || "").toLowerCase().includes(nama); 
+    window.currentFilteredAbsen = (window.allAbsenData || []).filter(a => {
+        let tglAbsen = String(a.Tanggal || a.tanggal || "");
+        let aNama = String(a.Nama || a.nama || "").toLowerCase();
+        let aKelas = String(a.Kelas || a.kelas || "").toLowerCase().trim();
+
+        let matchNama = nama === "" || aNama.includes(nama); 
         let matchBln = bln === "" || tglAbsen.startsWith(bln); 
-        let matchKelas = kelas === "" || (a.Kelas || a.kelas) === kelas;
+        let matchKelas = kelas === "" || aKelas === kelas;
         return matchNama && matchBln && matchKelas;
     });
     renderAbsenRows(window.currentFilteredAbsen);
 }
+
+function bukaFormAbsenGuru() {
+    let klsOptions = (window.absenAvailableClasses || []).map(k => `<option value="${k}">`).join('');
+    Swal.fire({
+        title: 'Input Absensi Kelas',
+        html: `<div class="text-start">
+                <label class="fw-bold mb-2">Pilih / Ketik Kelas yang ingin diabsen:</label>
+                <input type="text" id="swal-in-kelas" list="swal-list-kelas" class="form-control" placeholder="Contoh: 6 Al Mudzil">
+                <datalist id="swal-list-kelas">${klsOptions}</datalist>
+                <br>
+                <label class="fw-bold mb-2">Tanggal Absen:</label>
+                <input type="date" id="swal-in-tgl" class="form-control" value="${new Date().toISOString().split('T')[0]}">
+               </div>`,
+        showCancelButton: true, confirmButtonText: 'Tampilkan Daftar Siswa'
+    }).then(r => {
+        if(r.isConfirmed) {
+            let kls = ($('#swal-in-kelas').val() || '').trim(); 
+            let tgl = $('#swal-in-tgl').val();
+            if(!kls || !tgl) return Swal.fire('Error','Kelas dan Tanggal wajib diisi!','error');
+            
+            showLoad(true);
+            google.script.run.withSuccessHandler(res => {
+                showLoad(false);
+                let siswaKls = (res.data || []).filter(u => String(u.Role || u.role).toLowerCase() === 'siswa' && String(u.Kelas || u.kelas || '').trim().toLowerCase() === kls.toLowerCase());
+                if(siswaKls.length === 0) return Swal.fire('Kosong', 'Tidak ada siswa di kelas tersebut.', 'info');
+                
+                let formHtml = `<div class="text-start"><h5 class="fw-bold text-success border-bottom pb-2 mb-3">Absensi Kelas ${kls} (${tgl})</h5><form id="frm-absen-massal" style="max-height: 400px; overflow-y: auto; overflow-x: hidden;">`;
+                siswaKls.forEach((s, idx) => {
+                    let sId = s.ID || s.id; let sNama = s.Nama || s.nama;
+                    formHtml += `<div class="d-flex justify-content-between align-items-center p-2 border-bottom"><div class="fw-bold text-truncate" style="max-width: 45%;" title="${sNama}">${idx+1}. ${sNama}</div>
+                        <div class="d-flex gap-2">
+                            <label><input type="radio" name="abs_${sId}" value="Hadir" checked> H</label>
+                            <label><input type="radio" name="abs_${sId}" value="Sakit"> S</label>
+                            <label><input type="radio" name="abs_${sId}" value="Izin"> I</label>
+                            <label><input type="radio" name="abs_${sId}" value="Alpa"> A</label>
+                        </div></div>`;
+                });
+                formHtml += `</form></div>`;
+                
+                Swal.fire({
+                    html: formHtml, width: '700px', showCancelButton: true, confirmButtonText: 'Simpan Absensi Permanen', confirmButtonColor: '#0f5132'
+                }).then(rs => {
+                    if(rs.isConfirmed) {
+                        let records = [];
+                        siswaKls.forEach(s => { let sId = s.ID || s.id; records.push({ uid: sId, tgl: tgl, status: $(`input[name="abs_${sId}"]:checked`).val() }); });
+                        showLoad(true);
+                        google.script.run.withSuccessHandler(saveRes => {
+                            showLoad(false); Swal.fire('Berhasil', saveRes.msg, 'success'); loadPage('admin-absen');
+                        }).adminSaveAbsenBatch(records);
+                    }
+                });
+            }).getUserList(user.Role, user.ID, user.Sekolah, kls);
+        }
+    });
+}
+
+
 
 function printAbsen() {
     let data = window.currentFilteredAbsen;
@@ -3254,52 +3572,6 @@ function editAbsen(id, currStatus) {
     });
 }
 
-function bukaFormAbsenGuru() {
-    // Meminta guru memilih kelas mana yang mau di absen hari ini (Karena guru bisa pegang banyak kelas)
-    Swal.fire({
-        title: 'Input Absensi Kelas',
-        html: `<div class="text-start"><label class="fw-bold mb-2">Ketik Kelas yang ingin diabsen:</label><input type="text" id="swal-in-kelas" class="form-control" placeholder="Contoh: 10A"><br><label class="fw-bold mb-2">Tanggal Absen:</label><input type="date" id="swal-in-tgl" class="form-control" value="${new Date().toISOString().split('T')[0]}"></div>`,
-        showCancelButton: true, confirmButtonText: 'Tampilkan Daftar Siswa'
-    }).then(r => {
-        if(r.isConfirmed) {
-            let kls = $('#swal-in-kelas').val(); let tgl = $('#swal-in-tgl').val();
-            if(!kls || !tgl) return Swal.fire('Error','Kelas dan Tanggal wajib diisi!','error');
-            
-            showLoad(true);
-            google.script.run.withSuccessHandler(res => {
-                showLoad(false);
-                let siswaKls = res.data.filter(u => (u.Kelas||u.kelas) === kls);
-                if(siswaKls.length === 0) return Swal.fire('Kosong', 'Tidak ada siswa di kelas tersebut.', 'info');
-                
-                let formHtml = `<div class="text-start"><h5 class="fw-bold text-success border-bottom pb-2 mb-3">Absensi Kelas ${kls} (${tgl})</h5><form id="frm-absen-massal" style="max-height: 400px; overflow-y: auto; overflow-x: hidden;">`;
-                siswaKls.forEach((s, idx) => {
-                    let sId = s.ID || s.id; let sNama = s.Nama || s.nama;
-                    formHtml += `<div class="d-flex justify-content-between align-items-center p-2 border-bottom"><div class="fw-bold text-truncate" style="max-width: 45%;" title="${sNama}">${idx+1}. ${sNama}</div>
-                        <div class="d-flex gap-2">
-                            <label><input type="radio" name="abs_${sId}" value="Hadir" checked> H</label>
-                            <label><input type="radio" name="abs_${sId}" value="Sakit"> S</label>
-                            <label><input type="radio" name="abs_${sId}" value="Izin"> I</label>
-                            <label><input type="radio" name="abs_${sId}" value="Alpa"> A</label>
-                        </div></div>`;
-                });
-                formHtml += `</form></div>`;
-                
-                Swal.fire({
-                    html: formHtml, width: '700px', showCancelButton: true, confirmButtonText: 'Simpan Absensi Permanen', confirmButtonColor: '#0f5132'
-                }).then(rs => {
-                    if(rs.isConfirmed) {
-                        let records = [];
-                        siswaKls.forEach(s => { let sId = s.ID || s.id; records.push({ uid: sId, tgl: tgl, status: $(`input[name="abs_${sId}"]:checked`).val() }); });
-                        showLoad(true);
-                        google.script.run.withSuccessHandler(saveRes => {
-                            showLoad(false); Swal.fire('Berhasil', saveRes.msg, 'success'); loadPage('admin-absen');
-                        }).adminSaveAbsenBatch(records);
-                    }
-                });
-            }).getUserList(user.Role, user.ID, user.Sekolah);
-        }
-    });
-}
 
 // ===============================================
 // FUNGSI BARU: RAPORT SIAP CETAK PROFESIONAL
