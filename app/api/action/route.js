@@ -76,8 +76,12 @@ export async function POST(req) {
       let sql = "SELECT * FROM Users";
       let pArgs = [];
       if (role === 'guru') {
-          sql += " WHERE (LOWER(TRIM(Sekolah)) = LOWER(TRIM(?)) OR LOWER(TRIM(sekolah)) = LOWER(TRIM(?))) AND (LOWER(TRIM(Kelas)) = LOWER(TRIM(?)) OR LOWER(TRIM(kelas)) = LOWER(TRIM(?)))";
-          pArgs.push(sekolah, sekolah, kelas, kelas);
+          sql += " WHERE (LOWER(TRIM(Sekolah)) = LOWER(TRIM(?)) OR LOWER(TRIM(sekolah)) = LOWER(TRIM(?)))";
+          pArgs.push(sekolah, sekolah);
+          if (kelas && kelas !== '-' && String(kelas).toLowerCase() !== 'all') {
+              sql += " AND (LOWER(TRIM(Kelas)) = LOWER(TRIM(?)) OR LOWER(TRIM(kelas)) = LOWER(TRIM(?)))";
+              pArgs.push(kelas, kelas);
+          }
       }
       const users = await turso.execute({ sql: sql, args: pArgs });
       return NextResponse.json({ status: 'success', data: users.rows });
@@ -120,12 +124,28 @@ export async function POST(req) {
         let sql = "SELECT a.AbsenID, a.absenid, a.Tanggal, a.tanggal, a.Status, a.status, u.Nama, u.nama, u.Kelas, u.kelas, u.Sekolah, u.sekolah, u.Role, u.role FROM Attendance a JOIN Users u ON a.SiswaID = u.ID OR a.siswaid = u.id";
         let pArgs = [];
         if (role === 'guru') { 
-            sql += " WHERE (LOWER(TRIM(u.Sekolah)) = LOWER(TRIM(?)) OR LOWER(TRIM(u.sekolah)) = LOWER(TRIM(?))) AND (LOWER(TRIM(u.Kelas)) = LOWER(TRIM(?)) OR LOWER(TRIM(u.kelas)) = LOWER(TRIM(?)))"; 
-            pArgs.push(sekolah, sekolah, kelas, kelas); 
+            sql += " WHERE (LOWER(TRIM(u.Sekolah)) = LOWER(TRIM(?)) OR LOWER(TRIM(u.sekolah)) = LOWER(TRIM(?)))"; 
+            if (kelas && kelas !== '-' && kelas.toLowerCase() !== 'all') {
+                sql += " AND (LOWER(TRIM(u.Kelas)) = LOWER(TRIM(?)) OR LOWER(TRIM(u.kelas)) = LOWER(TRIM(?)))";
+                pArgs.push(sekolah, sekolah, kelas, kelas);
+            } else {
+                pArgs.push(sekolah, sekolah);
+            }
         }
         sql += " ORDER BY COALESCE(a.Tanggal, a.tanggal) DESC";
         const recap = await turso.execute({ sql, args: pArgs });
-        return NextResponse.json({ status: 'success', data: recap.rows });
+
+        // Ambil juga daftar kelas dari tabel Users agar Filter Kelas tetap berfungsi walau absen masih kosong
+        let klsSql = "SELECT DISTINCT COALESCE(Kelas, kelas) as kls FROM Users WHERE LOWER(COALESCE(Role, role)) = 'siswa'";
+        let klsArgs = [];
+        if (role === 'guru' && sekolah && sekolah !== '-') {
+            klsSql += " AND LOWER(TRIM(COALESCE(Sekolah, sekolah))) = LOWER(TRIM(?))";
+            klsArgs.push(sekolah);
+        }
+        const klsRes = await turso.execute({ sql: klsSql, args: klsArgs });
+        const classes = klsRes.rows.map(r => r.kls).filter(k => k && k !== '-');
+
+        return NextResponse.json({ status: 'success', data: recap.rows, classes: classes });
     }
 
     if (action === 'getSiswaAbsen') {
@@ -288,7 +308,32 @@ export async function POST(req) {
       }
       return NextResponse.json({ status: 'success', id: id, msg: 'Soal tersimpan!' });
     }
-
+// TAMBAHKAN BLOK INI TEPAT DI BAWAH adminSaveSingleQuestion:
+    if (action === 'adminBatchSaveQuestions') {
+      const [eid, questionsArr, userId] = args;
+      if (!Array.isArray(questionsArr) || questionsArr.length === 0) {
+        return NextResponse.json({ status: 'error', msg: 'Data soal kosong atau tidak valid.' });
+      }
+      for (let i = 0; i < questionsArr.length; i++) {
+        const q = questionsArr[i];
+        const id = 'Q' + Date.now() + '_' + i + '_' + Math.floor(Math.random() * 1000);
+        await turso.execute({
+          sql: "INSERT INTO Questions (QID, ExamID, Tipe, Pertanyaan, Options, Key, Skor, Nomor, PembuatID) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          args: [
+            id,
+            eid,
+            q.type || 'PGS',
+            q.text || '',
+            JSON.stringify(Array.isArray(q.options) ? q.options : []),
+            JSON.stringify(Array.isArray(q.key) ? q.key : []),
+            Number(q.score) || 10,
+            Number(q.num) || (i + 1),
+            userId || 'admin'
+          ]
+        });
+      }
+      return NextResponse.json({ status: 'success', msg: `${questionsArr.length} soal berhasil diimport dan dirender!` });
+    }
     if (action === 'adminDeleteQuestion') {
       await turso.execute({ sql: "DELETE FROM Questions WHERE QID = ? OR qid = ?", args: [args[0], args[0]] });
       return NextResponse.json({ status: 'success' });
@@ -345,10 +390,11 @@ export async function POST(req) {
 // Dapatkan waktu saat ini dengan zona waktu Indonesia
        const waktu = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
        
-       await turso.execute({ 
+      await turso.execute({ 
            sql: "INSERT INTO Results (ResultID, SiswaID, ExamID, TotalNilai, Detail, Pelanggaran, WaktuSubmit) VALUES (?, ?, ?, ?, ?, ?, ?)", 
            args: ['RES' + Date.now(), uid, eid, finalScore100, JSON.stringify(detailLog), violations > 0 ? `Pelanggaran: ${violations}x` : "-", waktu] 
        });
+       return NextResponse.json({ status: 'success', msg: 'Jawaban berhasil dikirim!' });
     }
 
     if (action === 'getRecapList') {
