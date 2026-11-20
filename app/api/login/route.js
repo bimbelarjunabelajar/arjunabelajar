@@ -30,7 +30,7 @@ export async function POST(req) {
         status: 'success',
         data: user,
         token: token,
-        logo: 'https://lh3.googleusercontent.com/d/1aWHmp6kNKwTYkwEMqVg34_ofiWRkymFe'
+        logo: 'https://lh3.googleusercontent.com/d/1U1RMuR5nBSVumM7zCr-ZX0QHYLWxXXUJ'
       });
     }
 
