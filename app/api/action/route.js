@@ -190,7 +190,7 @@ export async function POST(req) {
     // ==========================================
     if (action === 'getDashboardData') {
       const [role, userId, kelas, sekolah] = args;
-      let output = { logo: 'https://lh3.googleusercontent.com/d/1aWHmp6kNKwTYkwEMqVg34_ofiWRkymFe' };
+      let output = { logo: 'https://lh3.googleusercontent.com/d/1U1RMuR5nBSVumM7zCr-ZX0QHYLWxXXUJ' };
       
       try {
         let notifSql = "SELECT n.* FROM Notifications n";
